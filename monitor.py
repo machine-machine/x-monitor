@@ -11,9 +11,8 @@ import logging
 import hashlib
 import argparse
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 # Configure logging
 logging.basicConfig(
@@ -31,15 +30,6 @@ TARGET_ACCOUNTS = [
     "MarioNawfal",
     "RohOnChain",
     "xDaily",
-    "solaboratory",
-]
-
-# Nitter instances for scraping (fallback)
-NITTER_INSTANCES = [
-    "https://nitter.lucabased.xyz",
-    "https://nitter.perennialte.ch", 
-    "https://nitter.woodland.cafe",
-    "https://xcancel.com",
 ]
 
 # State file for deduplication
@@ -62,124 +52,170 @@ def save_state(state: dict):
     STATE_FILE.write_text(json.dumps(state, indent=2))
 
 
-def fetch_tweets_nitter(account: str) -> list[dict]:
-    """Fetch recent tweets via Nitter RSS."""
+def fetch_via_rss_bridge(account: str) -> list[dict]:
+    """Try RSS-Bridge instances for X feeds."""
     tweets = []
     
-    for instance in NITTER_INSTANCES:
+    # Public RSS-Bridge instances
+    bridges = [
+        f"https://rss-bridge.org/bridge01/?action=display&bridge=TwitterBridge&context=By+username&u={account}&format=Atom",
+    ]
+    
+    for url in bridges:
+        try:
+            resp = requests.get(url, timeout=20, headers={
+                "User-Agent": "Mozilla/5.0 (compatible; DEXY-Monitor/1.0)"
+            })
+            
+            if resp.status_code == 200 and '<entry>' in resp.text:
+                import xml.etree.ElementTree as ET
+                
+                # Parse Atom feed
+                root = ET.fromstring(resp.text)
+                ns = {'atom': 'http://www.w3.org/2005/Atom'}
+                
+                for entry in root.findall('.//atom:entry', ns)[:10]:
+                    title = entry.find('atom:title', ns)
+                    link = entry.find('atom:link', ns)
+                    content = entry.find('atom:content', ns)
+                    published = entry.find('atom:published', ns)
+                    
+                    text = ""
+                    if content is not None and content.text:
+                        import re
+                        text = re.sub(r'<[^>]+>', '', content.text).strip()
+                    elif title is not None and title.text:
+                        text = title.text
+                    
+                    if text and len(text) > 20:
+                        tweets.append({
+                            "author": f"@{account}",
+                            "text": text[:1000],
+                            "url": link.get('href') if link is not None else "",
+                            "timestamp": published.text if published is not None else "",
+                        })
+                
+                if tweets:
+                    logger.info(f"Fetched {len(tweets)} tweets from @{account} via RSS-Bridge")
+                    return tweets
+                    
+        except Exception as e:
+            logger.debug(f"RSS-Bridge failed for @{account}: {e}")
+            continue
+    
+    return tweets
+
+
+def fetch_via_nitter(account: str) -> list[dict]:
+    """Fetch tweets via Nitter instances."""
+    tweets = []
+    
+    nitter_instances = [
+        "https://nitter.poast.org",
+        "https://nitter.privacydev.net",
+    ]
+    
+    for instance in nitter_instances:
         try:
             url = f"{instance}/{account}/rss"
             resp = requests.get(url, timeout=15, headers={
                 "User-Agent": "Mozilla/5.0 (compatible; DEXY-Monitor/1.0)"
             })
             
-            if resp.status_code == 200:
-                # Parse RSS
+            if resp.status_code == 200 and '<item>' in resp.text:
                 import xml.etree.ElementTree as ET
                 root = ET.fromstring(resp.text)
                 
-                for item in root.findall(".//item")[:10]:  # Last 10 tweets
+                for item in root.findall(".//item")[:10]:
                     title = item.find("title")
                     link = item.find("link")
-                    pub_date = item.find("pubDate")
                     description = item.find("description")
+                    pub_date = item.find("pubDate")
                     
-                    if title is not None:
+                    text = ""
+                    if description is not None and description.text:
+                        import re
+                        text = re.sub(r'<[^>]+>', '', description.text).strip()
+                    elif title is not None and title.text:
+                        text = title.text
+                    
+                    if text and len(text) > 20:
                         tweets.append({
                             "author": f"@{account}",
-                            "text": title.text or "",
+                            "text": text[:1000],
                             "url": link.text if link is not None else "",
                             "timestamp": pub_date.text if pub_date is not None else "",
-                            "description": description.text if description is not None else "",
                         })
                 
-                logger.info(f"Fetched {len(tweets)} tweets from @{account} via {instance}")
-                return tweets
-                
+                if tweets:
+                    logger.info(f"Fetched {len(tweets)} tweets from @{account} via Nitter")
+                    return tweets
+                    
         except Exception as e:
-            logger.warning(f"Failed to fetch from {instance}: {e}")
+            logger.debug(f"Nitter failed for @{account}: {e}")
             continue
     
     return tweets
 
 
-def fetch_tweets_direct(account: str) -> list[dict]:
-    """Fetch tweets via X's syndication API (public, no auth needed)."""
+def fetch_via_twstalker(account: str) -> list[dict]:
+    """Fetch tweets via twstalker.com (X viewer)."""
     tweets = []
     
-    # Try multiple endpoints
-    endpoints = [
-        f"https://syndication.twitter.com/srv/timeline-profile/screen-name/{account}",
-        f"https://publish.twitter.com/oembed?url=https://twitter.com/{account}",
-    ]
-    
-    for url in endpoints:
-        try:
-            resp = requests.get(url, timeout=15, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/json",
-            })
+    try:
+        url = f"https://twstalker.com/{account}"
+        resp = requests.get(url, timeout=15, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "text/html",
+        })
+        
+        if resp.status_code == 200:
+            import re
             
-            if resp.status_code == 200:
-                import re
+            # Extract tweet content from twstalker HTML
+            tweet_pattern = re.compile(
+                r'<div[^>]*class="[^"]*tweet-content[^"]*"[^>]*>(.*?)</div>',
+                re.DOTALL | re.IGNORECASE
+            )
+            
+            for match in tweet_pattern.finditer(resp.text)[:10]:
+                text = re.sub(r'<[^>]+>', '', match.group(1)).strip()
+                if text and len(text) > 20:
+                    tweets.append({
+                        "author": f"@{account}",
+                        "text": text[:1000],
+                        "url": f"https://x.com/{account}",
+                    })
+            
+            if tweets:
+                logger.info(f"Fetched {len(tweets)} tweets from @{account} via twstalker")
+                return tweets
                 
-                # Try JSON format (oembed)
-                if 'application/json' in resp.headers.get('content-type', '') or url.endswith('.json'):
-                    try:
-                        data = resp.json()
-                        if 'html' in data:
-                            text = re.sub(r'<[^>]+>', '', data['html']).strip()
-                            if text:
-                                tweets.append({
-                                    "author": f"@{account}",
-                                    "text": text[:500],
-                                    "url": f"https://x.com/{account}",
-                                })
-                    except:
-                        pass
-                
-                # Try HTML format (syndication)
-                elif "timeline-Tweet" in resp.text or "Tweet-text" in resp.text:
-                    tweet_pattern = re.compile(
-                        r'data-tweet-id="(\d+)".*?<p[^>]*class="[^"]*(?:timeline-Tweet-text|Tweet-text)[^"]*"[^>]*>(.*?)</p>',
-                        re.DOTALL
-                    )
-                    
-                    for match in tweet_pattern.finditer(resp.text):
-                        tweet_id, text = match.groups()
-                        text = re.sub(r'<[^>]+>', '', text).strip()
-                        
-                        if text:
-                            tweets.append({
-                                "author": f"@{account}",
-                                "text": text,
-                                "url": f"https://x.com/{account}/status/{tweet_id}",
-                                "id": tweet_id,
-                            })
-                
-                if tweets:
-                    logger.info(f"Fetched {len(tweets)} tweets from @{account} via syndication")
-                    return tweets
-                
-        except Exception as e:
-            logger.warning(f"Direct fetch failed for @{account}: {e}")
-            continue
+    except Exception as e:
+        logger.debug(f"Twstalker failed for @{account}: {e}")
     
     return tweets
 
 
 def fetch_all_tweets() -> list[dict]:
-    """Fetch tweets from all target accounts."""
+    """Fetch tweets from all target accounts using multiple methods."""
     all_tweets = []
     
     for account in TARGET_ACCOUNTS:
-        # Try direct first, fall back to nitter
-        tweets = fetch_tweets_direct(account)
-        if not tweets:
-            tweets = fetch_tweets_nitter(account)
+        tweets = []
         
-        all_tweets.extend(tweets)
-        time.sleep(2)  # Rate limiting between accounts
+        # Try methods in order of reliability
+        for fetch_method in [fetch_via_rss_bridge, fetch_via_nitter, fetch_via_twstalker]:
+            tweets = fetch_method(account)
+            if tweets:
+                break
+        
+        if tweets:
+            all_tweets.extend(tweets)
+        else:
+            logger.warning(f"Could not fetch tweets for @{account}")
+        
+        time.sleep(2)  # Rate limiting
     
     return all_tweets
 
@@ -188,7 +224,6 @@ def analyze_with_cerebras(tweets: list[dict]) -> str:
     """Send tweets to Cerebras for highlight extraction."""
     api_key = os.environ.get("CEREBRAS_API_KEY")
     if not api_key:
-        # Try loading from config file
         config_path = Path.home() / ".config/cerebras/config"
         if config_path.exists():
             for line in config_path.read_text().split('\n'):
@@ -202,9 +237,13 @@ def analyze_with_cerebras(tweets: list[dict]) -> str:
     
     # Format tweets for analysis
     tweet_text = "\n\n".join([
-        f"@{t.get('author', '?')}: {t.get('text', '')[:500]}"
-        for t in tweets[:30]  # Limit to 30 tweets
+        f"{t.get('author', '?')}: {t.get('text', '')}"
+        for t in tweets[:20]
     ])
+    
+    if len(tweet_text) < 100:
+        logger.warning("Not enough tweet content to analyze")
+        return "No major highlights this hour."
     
     prompt = f"""Analyze these recent crypto/Solana tweets and extract the most important highlights.
 
@@ -231,7 +270,7 @@ If nothing significant, say "No major highlights this hour."
                 "Content-Type": "application/json",
             },
             json={
-                "model": "zai-glm-4.7",
+                "model": "llama-3.3-70b",
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 1000,
                 "temperature": 0.3,
@@ -241,13 +280,8 @@ If nothing significant, say "No major highlights this hour."
         
         if resp.status_code == 200:
             data = resp.json()
-            try:
-                msg = data["choices"][0]["message"]
-                # zai-glm-4.7 uses 'reasoning' field, others use 'content'
-                return msg.get("content") or msg.get("reasoning") or str(msg)
-            except (KeyError, IndexError) as e:
-                logger.error(f"Cerebras response format error: {e}, data: {data}")
-                return ""
+            msg = data["choices"][0]["message"]
+            return msg.get("content") or msg.get("reasoning") or ""
         else:
             logger.error(f"Cerebras API error: {resp.status_code} - {resp.text}")
             return ""
@@ -262,7 +296,6 @@ def send_to_telegram(message: str, chat_id: str = "-5223082150"):
     bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
     
     if not bot_token:
-        # Try to get from OpenClaw config
         try:
             config_path = Path.home() / ".openclaw/openclaw.json"
             if config_path.exists():
@@ -279,7 +312,7 @@ def send_to_telegram(message: str, chat_id: str = "-5223082150"):
         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
         resp = requests.post(url, json={
             "chat_id": chat_id,
-            "text": f"🔍 **X Monitor Scan**\n_{datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}_\n\n{message}",
+            "text": f"🔍 *X Monitor Scan*\n_{datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}_\n\n{message}",
             "parse_mode": "Markdown",
         }, timeout=30)
         
@@ -299,18 +332,15 @@ def run_scan(force_post: bool = False):
     """Run a single scan cycle."""
     logger.info("Starting X monitor scan...")
     
-    # Load state
     state = load_state()
-    
-    # Fetch tweets
     tweets = fetch_all_tweets()
     logger.info(f"Fetched {len(tweets)} total tweets")
     
     if not tweets:
-        logger.warning("No tweets fetched")
+        logger.warning("No tweets fetched from any source")
         return
     
-    # Deduplicate using hash
+    # Deduplicate
     new_tweets = []
     for tweet in tweets:
         tweet_hash = hashlib.md5(tweet.get("text", "")[:100].encode()).hexdigest()
@@ -318,9 +348,7 @@ def run_scan(force_post: bool = False):
             new_tweets.append(tweet)
             state.setdefault("seen_hashes", []).append(tweet_hash)
     
-    # Keep only last 1000 hashes
-    state["seen_hashes"] = state["seen_hashes"][-1000:]
-    
+    state["seen_hashes"] = state["seen_hashes"][-500:]
     logger.info(f"Found {len(new_tweets)} new tweets")
     
     if not new_tweets and not force_post:
@@ -331,20 +359,19 @@ def run_scan(force_post: bool = False):
     
     # Analyze with Cerebras
     analysis = analyze_with_cerebras(new_tweets if new_tweets else tweets)
+    logger.info(f"Analysis result: {analysis[:200] if analysis else 'EMPTY'}...")
     
-    if analysis and "No major highlights" not in analysis:
-        # Post to Telegram
+    if analysis and "No major highlights" not in analysis and len(analysis) > 50:
         send_to_telegram(analysis)
     else:
         logger.info("No significant highlights to post")
     
-    # Save state
     state["last_scan"] = datetime.utcnow().isoformat()
     save_state(state)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="X Monitor - Twitter monitoring with Cerebras")
+    parser = argparse.ArgumentParser(description="X Monitor")
     parser.add_argument("--once", action="store_true", help="Run single scan and exit")
     parser.add_argument("--interval", type=int, default=3600, help="Scan interval in seconds")
     parser.add_argument("--force", action="store_true", help="Force post even if no new tweets")
