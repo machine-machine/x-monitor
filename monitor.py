@@ -241,7 +241,13 @@ If nothing significant, say "No major highlights this hour."
         
         if resp.status_code == 200:
             data = resp.json()
-            return data["choices"][0]["message"]["content"]
+            try:
+                msg = data["choices"][0]["message"]
+                # zai-glm-4.7 uses 'reasoning' field, others use 'content'
+                return msg.get("content") or msg.get("reasoning") or str(msg)
+            except (KeyError, IndexError) as e:
+                logger.error(f"Cerebras response format error: {e}, data: {data}")
+                return ""
         else:
             logger.error(f"Cerebras API error: {resp.status_code} - {resp.text}")
             return ""
