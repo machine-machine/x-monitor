@@ -36,9 +36,10 @@ TARGET_ACCOUNTS = [
 
 # Nitter instances for scraping (fallback)
 NITTER_INSTANCES = [
-    "https://nitter.poast.org",
-    "https://nitter.privacydev.net",
-    "https://nitter.cz",
+    "https://nitter.lucabased.xyz",
+    "https://nitter.perennialte.ch", 
+    "https://nitter.woodland.cafe",
+    "https://xcancel.com",
 ]
 
 # State file for deduplication
@@ -106,42 +107,63 @@ def fetch_tweets_direct(account: str) -> list[dict]:
     """Fetch tweets via X's syndication API (public, no auth needed)."""
     tweets = []
     
-    try:
-        # X syndication timeline endpoint (works for public profiles)
-        url = f"https://syndication.twitter.com/srv/timeline-profile/screen-name/{account}"
-        
-        resp = requests.get(url, timeout=15, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "text/html,application/xhtml+xml",
-        })
-        
-        if resp.status_code == 200 and "timeline-Tweet" in resp.text:
-            # Extract tweets from HTML
-            import re
+    # Try multiple endpoints
+    endpoints = [
+        f"https://syndication.twitter.com/srv/timeline-profile/screen-name/{account}",
+        f"https://publish.twitter.com/oembed?url=https://twitter.com/{account}",
+    ]
+    
+    for url in endpoints:
+        try:
+            resp = requests.get(url, timeout=15, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/json",
+            })
             
-            # Find tweet texts
-            tweet_pattern = re.compile(
-                r'data-tweet-id="(\d+)".*?<p[^>]*class="[^"]*timeline-Tweet-text[^"]*"[^>]*>(.*?)</p>',
-                re.DOTALL
-            )
-            
-            for match in tweet_pattern.finditer(resp.text):
-                tweet_id, text = match.groups()
-                # Clean HTML tags
-                text = re.sub(r'<[^>]+>', '', text).strip()
+            if resp.status_code == 200:
+                import re
                 
-                if text:
-                    tweets.append({
-                        "author": f"@{account}",
-                        "text": text,
-                        "url": f"https://x.com/{account}/status/{tweet_id}",
-                        "id": tweet_id,
-                    })
-            
-            logger.info(f"Fetched {len(tweets)} tweets from @{account} via syndication")
-            
-    except Exception as e:
-        logger.warning(f"Direct fetch failed for @{account}: {e}")
+                # Try JSON format (oembed)
+                if 'application/json' in resp.headers.get('content-type', '') or url.endswith('.json'):
+                    try:
+                        data = resp.json()
+                        if 'html' in data:
+                            text = re.sub(r'<[^>]+>', '', data['html']).strip()
+                            if text:
+                                tweets.append({
+                                    "author": f"@{account}",
+                                    "text": text[:500],
+                                    "url": f"https://x.com/{account}",
+                                })
+                    except:
+                        pass
+                
+                # Try HTML format (syndication)
+                elif "timeline-Tweet" in resp.text or "Tweet-text" in resp.text:
+                    tweet_pattern = re.compile(
+                        r'data-tweet-id="(\d+)".*?<p[^>]*class="[^"]*(?:timeline-Tweet-text|Tweet-text)[^"]*"[^>]*>(.*?)</p>',
+                        re.DOTALL
+                    )
+                    
+                    for match in tweet_pattern.finditer(resp.text):
+                        tweet_id, text = match.groups()
+                        text = re.sub(r'<[^>]+>', '', text).strip()
+                        
+                        if text:
+                            tweets.append({
+                                "author": f"@{account}",
+                                "text": text,
+                                "url": f"https://x.com/{account}/status/{tweet_id}",
+                                "id": tweet_id,
+                            })
+                
+                if tweets:
+                    logger.info(f"Fetched {len(tweets)} tweets from @{account} via syndication")
+                    return tweets
+                
+        except Exception as e:
+            logger.warning(f"Direct fetch failed for @{account}: {e}")
+            continue
     
     return tweets
 
