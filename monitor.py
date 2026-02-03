@@ -23,13 +23,13 @@ logger = logging.getLogger(__name__)
 
 # Target accounts to monitor
 TARGET_ACCOUNTS = [
-    "pumpdotfun",
-    "RaydiumProtocol", 
-    "MeteoraAG",
-    "solaboratory",
-    "MarioNawfal",
-    "RohOnChain",
-    "xDaily",
+    "Pumpfun",          # Official pump.fun (verified)
+    "Raydium",          # Raydium DEX (not RaydiumProtocol)
+    "MeteoraAG",        # Meteora DEX
+    "MarioNawfal",      # Crypto news
+    "RohOnChain",       # DeFi/trading insights
+    "xDaily",           # xAI news
+    "JupiterExchange",  # Jupiter aggregator
 ]
 
 # State file for deduplication
