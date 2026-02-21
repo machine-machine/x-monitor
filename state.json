@@ -1,0 +1,47 @@
+{
+  "seen_hashes": [
+    "vyper_acquisition_2026_02_06",
+    "memecoin_goldrush_2026_02_02",
+    "3m_hackathon_2026_01_19",
+    "epstein_cryptic_2026_02_03",
+    "8d9b18bcb077695e56dcf22fc4b5a7a8",
+    "92eaeff0ed3b818f425a179ab3861d76",
+    "613686d0e5928cfaa6c06ad577a4d2b7",
+    "32ecf6d1c1a04fff0e752230c4cdb249",
+    "d6ae64d965f719f79378db9a7555f8bb",
+    "4db774668f1a5b98fe3f71d626ccbbab",
+    "bf9a39c63725af93de0ad46b8f2a01c8",
+    "d55840871430d7b7f3d8c1a2b96f140c",
+    "afdf1bc3240c67f7748f1bcf18bbee6b",
+    "d6e5ee28b1033ff31d60b0c91e78ff0a",
+    "5689328601396ea75e135202ab44354d",
+    "d38422eead9ee9f9dfa589dcc07bac60",
+    "0c49f60623e36059b0c9103359e4cdff",
+    "6c2690df303fdae1904f3b9089528114",
+    "c687bd2576675bc831e3ed22fa15d94e",
+    "ca4e793b263cfb2b1877947262399659",
+    "1354667a23f52bb4a6091fc0560aeae7",
+    "56ecd68d7bbe453f520c6545ca280c21",
+    "3312988f22bcb8fd9ab3f98702b71c58",
+    "5c9eb1d9f87a9d07688ab47c7b2ef0be",
+    "659859524c2027d275306de022174543",
+    "7ee22b49e762437d799bbb0d4e5e76c6",
+    "d05b9239c64a5139ec492e03e688c6df",
+    "2338d1e7d1f1e01affc6580e279995ba",
+    "3c5d317f7e48c053da61aa3f0e7211d1",
+    "9408973d08eeec01235f4a29455927cd"
+  ],
+  "last_scan": "2026-02-18T08:01:27.778740",
+  "accounts_checked": [
+    "Pumpfun"
+  ],
+  "highlights_found": [
+    {
+      "account": "@Pumpfun",
+      "timestamp": "13h ago",
+      "type": "acquisition",
+      "content": "Vyper acquisition announcement",
+      "significance": "high"
+    }
+  ]
+}

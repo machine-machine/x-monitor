@@ -270,7 +270,7 @@ If nothing significant, say "No major highlights this hour."
                 "Content-Type": "application/json",
             },
             json={
-                "model": "llama-3.3-70b",
+                "model": "zai-glm-4.7",
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 1000,
                 "temperature": 0.3,
